@@ -1,5 +1,6 @@
 google-adk==1.4.1
 python-dotenv==1.1.0
 requests==2.32.4
-supabase==2.11.1
+supabase
+pydantic==2.10.6
 
