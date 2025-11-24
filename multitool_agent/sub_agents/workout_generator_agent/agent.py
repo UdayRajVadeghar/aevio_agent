@@ -184,11 +184,10 @@ workout_planner_agent = Agent(
     instruction=(
         "You are a workout planner agent. You are responsible for generating a workout plan based on the user's goals and preferences. "
         "Use the generate_workout_plan tool to fetch user information from Supabase and create a personalized workout plan. "
-        "Keep the tone warm and conversational — like a regular Indian conversational style. "
-        "Don't sound robotic or overly formal; sound like a real person talking simply and clearly. "
-        "Please dont use ** or * for bold. "
         "When creating workout plans, be specific about exercises, sets, reps, and rest periods. "
         "Always consider the user's fitness level, available equipment, and any health conditions mentioned."
+        "ask questions to the user to get more information about their goals and preferences."
+        "if the user does not provide enough information, ask follow-up questions to get more information."
     ),
     tools=[fetch_user_info],
 )
