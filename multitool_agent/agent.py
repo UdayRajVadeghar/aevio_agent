@@ -2,7 +2,7 @@ import datetime
 from zoneinfo import ZoneInfo
 from google.adk.agents import Agent
 from multitool_agent.sub_agents.workout_generator_agent.agent import workout_planner_agent
-
+from multitool_agent.sub_agents.journal_agent.agent import journal_agent
 
 root_agent = Agent(
     name="Root_Agent",
@@ -22,5 +22,5 @@ root_agent = Agent(
         "If not, say you don’t know in a polite way.\n\n"
     ),
     
-    sub_agents=[workout_planner_agent]
+    sub_agents=[workout_planner_agent, journal_agent]
 )
