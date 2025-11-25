@@ -12,8 +12,7 @@ agent_engine = client.agent_engines.create(
     config=vertexai_types.AgentEngineConfig(display_name="aevio_memory_bank")
 )
 
-# Optionally, print out the Agent Engine resource name. You will need the
-# resource name to interact with your Agent Engine instance later on.
+
 print(agent_engine.api_resource.name)
 
 agent_engine_id = agent_engine.api_resource.name.split("/")[-1]
