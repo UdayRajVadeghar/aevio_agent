@@ -147,7 +147,7 @@ def fetch_user_info(user_id: str) -> str:
         # Validate and parse data using Pydantic
         try:
             # Parse full schema for validation
-            full_profile = UserProfileSchema(**user_data)
+            full_profile = UserProfileSchema.model_validate(user_data)
 
             # Extract workout-relevant fields
             workout_info = WorkoutUserInfo(
