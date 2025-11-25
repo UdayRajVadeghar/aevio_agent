@@ -1,5 +1,5 @@
 """
-Workout Generator Agent - Generates personalized workout plans based on user data from Supabase.
+Journal Agent - Saves and retrieves journal entries from the Vertex AI Memory Bank.
 """
 
 from google.adk.agents import Agent
@@ -7,7 +7,6 @@ import vertexai
 import os
 from dotenv import load_dotenv
 from typing import Dict
-from google.adk.memory import VertexAiMemoryBankService
 load_dotenv()
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -15,21 +14,41 @@ LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
 AGENT_ENGINE_ID = os.environ.get("AGENT_ENGINE_ID")
 AGENT_ENGINE_NAME = f"projects/{PROJECT_ID}/locations/{LOCATION}/reasoningEngines/{AGENT_ENGINE_ID}"
 DEFAULT_USER_ID = "journal_user_opaque_id"
+APP_NAME = "aevio_memory_bank"  # Must match across save and retrieve
 client = vertexai.Client(project=PROJECT_ID, location=LOCATION)
-memory_service = VertexAiMemoryBankService(
-    project=PROJECT_ID,
-    location=LOCATION,
-    agent_engine_id=AGENT_ENGINE_ID
-)
 
-def get_journal_entry():
+def get_journal_entry() -> str:
     """
-    This function gets a journal entry from the memory bank using the user's opaque id.
+    This function gets journal entries from the memory bank using the user's opaque id.
+    Uses the same client as save_journal_entry to avoid API key conflicts.
     """
-    results = memory_service.search_memory(app_name="aevio_memory_bank", user_id=DEFAULT_USER_ID, query="*")
-    if not results:
-        return "No journal entries found."
-    return results
+    try:
+        # Use the same scope as save_journal_entry for consistency
+        scope = {"app_name": APP_NAME, "user_id": DEFAULT_USER_ID}
+        
+        # Use client.agent_engines.memories.retrieve() - same client used for saving
+        retrieved_memories = client.agent_engines.memories.retrieve(
+            name=AGENT_ENGINE_NAME,
+            scope=scope,
+            similarity_search_params={"search_query": "*"}
+        )
+        
+        # Process the retrieved memories
+        formatted_entries = []
+        for idx, retrieved_memory in enumerate(retrieved_memories, start=1):
+            memory = retrieved_memory.memory
+            fact = getattr(memory, "fact", None) or "[No content]"
+            update_time = getattr(memory, "update_time", None)
+            timestamp = update_time.isoformat() if update_time else "unknown timestamp"
+            formatted_entries.append(f"Entry {idx} ({timestamp}):\n{fact}")
+        
+        if not formatted_entries:
+            return "No journal entries found."
+        
+        return "\n\n".join(formatted_entries)
+        
+    except Exception as error:
+        return f"Error fetching journal entries: {error}"
 
 def save_journal_entry(entry: str) -> str:
     """
@@ -44,9 +63,10 @@ def save_journal_entry(entry: str) -> str:
     
     # 1. Define the distinct scopes for separation [1-3]
     # Curated Facts: Used for agent interaction (consolidation enabled)
-    CURATED_FACTS_SCOPE: Dict[str, str] = {"user_id": DEFAULT_USER_ID}
+    # IMPORTANT: app_name must be included for retrieval to work correctly
+    CURATED_FACTS_SCOPE: Dict[str, str] = {"app_name": APP_NAME, "user_id": DEFAULT_USER_ID}
     # Raw Archive: Used for static storage (bypasses consolidation)
-    RAW_ARCHIVE_SCOPE: Dict[str, str] = {"user_id": DEFAULT_USER_ID, "data_type": "raw_archive"}
+    RAW_ARCHIVE_SCOPE: Dict[str, str] = {"app_name": APP_NAME, "user_id": DEFAULT_USER_ID, "data_type": "raw_archive"}
     
     curated_status = ""
     archive_status = ""
