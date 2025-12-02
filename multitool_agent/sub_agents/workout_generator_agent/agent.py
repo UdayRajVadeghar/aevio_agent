@@ -56,7 +56,6 @@ class UserProfileSchema(BaseModel):
     # Workout Schedule & Preferences
     workoutDays: Optional[int] = None  # number of days per week (1-7)
     workoutDuration: Optional[int] = None  # preferred duration in minutes (20, 30, 45, 60, 90)
-    preferredTrainingDays: List[str] = Field(default_factory=list)  # ["monday", "wednesday", "friday"]
 
     # Training Style & Preferences
     trainingStyle: List[str] = Field(default_factory=list)  # ["hiit", "strength", "calisthenics", "yoga", "functional", "crossfit", "pilates"]
@@ -188,7 +187,6 @@ class WorkoutUserInfo(BaseModel):
     # Workout Schedule & Preferences
     workoutDays: Optional[int] = None
     workoutDuration: Optional[int] = None
-    preferredTrainingDays: List[str] = Field(default_factory=list)
 
     # Training Style & Preferences
     trainingStyle: List[str] = Field(default_factory=list)
@@ -279,7 +277,6 @@ Equipment Available:
 Workout Preferences:
 - Workout Days per Week: {self.workoutDays if self.workoutDays else 'N/A'}
 - Preferred Duration: {f'{self.workoutDuration} minutes' if self.workoutDuration else 'N/A'}
-- Preferred Training Days: {', '.join(self.preferredTrainingDays) if self.preferredTrainingDays else 'Flexible'}
 - Training Styles: {', '.join(self.trainingStyle) if self.trainingStyle else 'Not specified'}
 - Target Body Parts: {', '.join(self.targetBodyParts) if self.targetBodyParts else 'Full body'}
 - Exercise Dislikes: {', '.join(self.exerciseDislikes) if self.exerciseDislikes else 'None'}
@@ -353,7 +350,6 @@ def fetch_user_info(user_id: str) -> str:
                 # Workout Schedule & Preferences
                 workoutDays=full_profile.workoutDays,
                 workoutDuration=full_profile.workoutDuration,
-                preferredTrainingDays=full_profile.preferredTrainingDays,
                 # Training Style & Preferences
                 trainingStyle=full_profile.trainingStyle,
                 targetBodyParts=full_profile.targetBodyParts,
@@ -395,5 +391,5 @@ workout_planner_agent = Agent(
         "ask questions to the user to get more information about their goals and preferences."
         "if the user does not provide enough information, ask follow-up questions to get more information."
     ),
-    tools=[fetch_user_info],
+    tools=[fetch_user_info ],
 )
