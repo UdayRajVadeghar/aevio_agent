@@ -13,6 +13,7 @@ from .schemas import AI_WORKOUT_GENERATION_CONTEXT, WorkoutPlan
 from .tools import (
     fetch_user_info,
     format_workout_plan_for_review,
+    format_workout_week_details,
     generate_workout_plan_ids,
     get_current_datetime,
     get_workout_schema_info,
@@ -53,28 +54,46 @@ WORKFLOW:
 4. Use get_current_datetime to get the current timestamp for the generatedAt field
 5. Generate the complete workout plan JSON following the schema EXACTLY
 6. Use validate_workout_plan to verify your generated plan is valid
-7. Use format_workout_plan_for_review to present it in a readable format
-8. ASK for feedback
-9. If user wants changes, modify the plan accordingly and show updated version
-10. ONLY use save_workout_plan AFTER the user explicitly confirms they are satisfied
+7. Use format_workout_plan_for_review to present a CONDENSED SUMMARY (shows overview + Week 1 sample)
+8. If user asks for details on a specific week, use format_workout_week_details(week_number)
+9. ASK for feedback
+10. If user wants changes, modify the plan accordingly and show updated version
+11. ONLY use save_workout_plan AFTER the user explicitly confirms they are satisfied
+
+⚠️ IMPORTANT - CONDENSED DISPLAY:
+- format_workout_plan_for_review shows a HIGH-LEVEL OVERVIEW to avoid token limits
+- It automatically shows Week 1 details as a sample
+- If user wants to see other weeks, use format_workout_week_details(week_number)
+- The full plan is cached internally, so you don't need to pass the JSON again
 
 ⚠️ CRITICAL: NEVER save the workout plan automatically!
 - Always wait for user confirmation before saving
 - Ask "Would you like me to save this plan?" or similar
 - Only save when user says "yes", "save it", "looks good", "I'm happy with it", etc.
 
-⚠️ CRITICAL JSON GENERATION RULES:
-When generating the workout plan JSON:
-- Output RAW, CLEAN JSON - never escape quotes or encode the JSON as a string
-- NEVER output JSON like: {{ \\"key\\": \\"value\\" }} or {{ \"key\": \"value\" }}
-- ALWAYS output clean JSON like: {{ "key": "value" }}
-- Do NOT add explanatory messages before or after the JSON like:
-  * "Great news! The workout plan has passed validation..."
-  * "Here is the full JSON for your personalized workout plan:"
-  * "The plan is ready!"
-- When you have validation errors, fix them silently and regenerate - do NOT explain the error to the user
+⚠️ CRITICAL TOOL CALLING RULES:
+When calling tools with workout plans:
+- Call the tool DIRECTLY with the workout_plan parameter
+- Use proper JSON syntax with lowercase booleans: true/false (NOT True/False)
+- Use null (NOT None) for null values
+- Do NOT wrap your tool call in print() or any other function
+- Do NOT assign the workout plan to a variable first - pass it directly to the tool
+
+CORRECT tool call format:
+validate_workout_plan(workout_plan={{"id": "wrk_xxx", "isDeload": false, ...}})
+
+WRONG formats (do NOT do these):
+- workout_plan = {{...}}; validate_workout_plan(workout_plan)  ❌
+- print(validate_workout_plan(...))  ❌
+- {{"isDeload": False}} (Python boolean)  ❌
+- {{"value": None}} (Python None)  ❌
+
+JSON GENERATION RULES:
+- Output clean JSON with proper syntax
+- NEVER escape quotes: NO {{ \\"key\\": \\"value\\" }}
+- Do NOT add explanatory text before or after calling tools
+- When you have validation errors, fix them silently and regenerate
 - Do NOT apologize for schema errors or explain what you're fixing
-- Just generate correct JSON the first time by following the schema exactly
 
 ⚠️ CRITICAL - targetReps IS ALWAYS REQUIRED:
 - Every single set MUST have a "targetReps" field - this is NEVER optional
@@ -131,7 +150,7 @@ Use the tools provided to validate your output. Present plans in human-readable 
 
 
 # Create the workout planner agent
-workout_planner_agent = Agent(
+workout_planner_agent = Agent(  # type: ignore[call-arg]
     name="workout_planner_agent",
     model="gemini-2.5-flash",
     description="This agent generates personalized workout plans based on user data from Supabase. "
@@ -145,6 +164,7 @@ workout_planner_agent = Agent(
         validate_workout_plan,
         get_current_datetime,
         format_workout_plan_for_review,
+        format_workout_week_details,  # Show detailed week info on demand
         summarize_workout_changes,
         save_workout_plan,  # Only use after user confirms!
     ],

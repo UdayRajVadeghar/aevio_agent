@@ -468,21 +468,56 @@ Use the generate_workout_plan_ids tool to get pre-generated unique IDs for your 
 """
 
 
-def validate_workout_plan(workout_plan_json: str) -> str:
+def _parse_workout_input(workout_input) -> dict:
     """
-    Validate a workout plan JSON against the schema.
+    Parse workout plan input from various formats.
+    Handles dict, JSON string, or Python literal string.
+    """
+    import ast
+    
+    # If already a dict, return as-is
+    if isinstance(workout_input, dict):
+        return workout_input
+    
+    # If it's a string, try different parsing methods
+    if isinstance(workout_input, str):
+        # First, try standard JSON parsing
+        try:
+            return json.loads(workout_input)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try parsing as Python literal (handles True/False instead of true/false)
+        try:
+            return ast.literal_eval(workout_input)
+        except (ValueError, SyntaxError):
+            pass
+        
+        # If nothing works, raise an error
+        raise ValueError(f"Could not parse workout input as JSON or Python dict")
+    
+    # If it's some other type, try to convert to dict
+    if hasattr(workout_input, '__dict__'):
+        return vars(workout_input)
+    
+    raise ValueError(f"Unsupported workout input type: {type(workout_input)}")
+
+
+def validate_workout_plan(workout_plan: dict) -> str:
+    """
+    Validate a workout plan against the schema.
     
     Use this tool to check if a generated workout plan is valid before saving.
     
     Args:
-        workout_plan_json: JSON string of the workout plan to validate
+        workout_plan: The workout plan as a JSON object/dictionary
     
     Returns:
         String indicating validation success or detailed error messages
     """
     try:
-        # Parse the JSON
-        plan_data = json.loads(workout_plan_json)
+        # Parse the input using the robust parser
+        plan_data = _parse_workout_input(workout_plan)
         
         # Validate against Pydantic model
         validated_plan = WorkoutPlan.model_validate(plan_data)
@@ -556,20 +591,20 @@ def get_current_datetime() -> str:
     return get_current_timestamp()
 
 
-def save_workout_plan(user_id: str, workout_plan_json: str) -> str:
+def save_workout_plan(user_id: str, workout_plan: dict) -> str:
     """
     Save a validated workout plan to the Supabase database.
     
     Args:
         user_id: The user ID to associate the workout plan with
-        workout_plan_json: JSON string of the validated workout plan
+        workout_plan: The workout plan as a JSON object/dictionary
     
     Returns:
         String indicating success or error message
     """
     try:
-        # First validate the plan
-        plan_data = json.loads(workout_plan_json)
+        # Parse the input using the robust parser
+        plan_data = _parse_workout_input(workout_plan)
         validated_plan = WorkoutPlan.model_validate(plan_data)
         
         # Connect to Supabase
@@ -617,23 +652,34 @@ The workout plan is now available in the user's account.
 # Workout Plan Formatting for User Review
 # ============================================================================
 
+# In-memory storage for the current workout plan (to avoid passing huge JSON repeatedly)
+_current_workout_plan_cache: Dict[str, WorkoutPlan] = {}
 
-def format_workout_plan_for_review(workout_plan_json: str) -> str:
+
+def format_workout_plan_for_review(workout_plan: dict) -> str:
     """
-    Format a workout plan JSON into a human-readable summary for user review.
+    Format a workout plan into a CONDENSED summary for user review.
+    
+    This shows a high-level overview of the plan structure without all exercise details,
+    to avoid exceeding token limits. Users can request details for specific weeks.
     
     Use this tool after generating a workout plan to present it to the user
     in a clear, readable format before they confirm saving.
     
     Args:
-        workout_plan_json: JSON string of the workout plan
+        workout_plan: The workout plan as a JSON object/dictionary
     
     Returns:
-        Human-readable formatted string of the workout plan
+        Human-readable condensed summary of the workout plan with instructions
+        to view detailed week information
     """
     try:
-        plan_data = json.loads(workout_plan_json)
+        # Parse the input using the robust parser
+        plan_data = _parse_workout_input(workout_plan)
         validated_plan = WorkoutPlan.model_validate(plan_data)
+        
+        # Cache the plan for detailed viewing later
+        _current_workout_plan_cache["current"] = validated_plan
         
         output = []
         output.append("=" * 60)
@@ -644,52 +690,70 @@ def format_workout_plan_for_review(workout_plan_json: str) -> str:
         output.append(f"💪 Difficulty: {validated_plan.difficulty.upper()}")
         output.append(f"🎯 Goal: {validated_plan.goal.replace('_', ' ').title()}")
         
+        # Show phase overview with week summaries (not full details)
         for phase in validated_plan.phases:
             output.append(f"\n{'─' * 50}")
             output.append(f"📌 PHASE: {phase.name} (Weeks {phase.week_start}-{phase.week_end})")
             output.append(f"   Objective: {phase.objective}")
             
             for week in phase.weeks:
-                output.append(f"\n   📅 Week {week.week_number} - Focus: {week.focus}" + 
-                            (" (DELOAD)" if week.is_deload else ""))
+                deload_tag = " 🔄 DELOAD" if week.is_deload else ""
+                training_days = sum(1 for d in week.days if not d.rest_day)
+                rest_days = sum(1 for d in week.days if d.rest_day)
                 
+                # Count unique exercises across the week
+                all_exercises = []
+                for day in week.days:
+                    if not day.rest_day:
+                        for block in day.blocks:
+                            all_exercises.extend([ex.name for ex in block.exercises])
+                
+                output.append(f"\n   📅 Week {week.week_number}: {week.focus}{deload_tag}")
+                output.append(f"      {training_days} training days, {rest_days} rest days")
+                output.append(f"      {len(all_exercises)} exercises total")
+                
+                # Show day names only (not full details)
+                day_summaries = []
                 for day in week.days:
                     if day.rest_day:
-                        output.append(f"      Day {day.day_number}: 🛋️  REST DAY")
+                        day_summaries.append(f"D{day.day_number}:Rest")
                     else:
-                        output.append(f"\n      Day {day.day_number}: {day.name} ({day.target_duration} min)")
-                        output.append(f"      Targets: {', '.join(day.muscle_groups)}")
+                        day_summaries.append(f"D{day.day_number}:{day.name[:15]}")
+                output.append(f"      Schedule: {' | '.join(day_summaries)}")
+        
+        # Show first week details as a sample
+        output.append(f"\n{'═' * 60}")
+        output.append("📋 SAMPLE: Week 1 Details")
+        output.append("─" * 50)
+        
+        if validated_plan.phases and validated_plan.phases[0].weeks:
+            first_week = validated_plan.phases[0].weeks[0]
+            for day in first_week.days:
+                if day.rest_day:
+                    output.append(f"\n   Day {day.day_number}: 🛋️  REST DAY")
+                else:
+                    output.append(f"\n   Day {day.day_number}: {day.name} ({day.target_duration} min)")
+                    output.append(f"   Targets: {', '.join(day.muscle_groups)}")
+                    
+                    for block in day.blocks:
+                        block_type_emoji = {
+                            "straight": "➡️",
+                            "superset": "🔄",
+                            "circuit": "🔁",
+                            "emom": "⏰",
+                            "amrap": "💥"
+                        }
+                        output.append(f"\n      {block_type_emoji.get(block.type, '•')} {block.type.upper()} Block:")
                         
-                        for block in day.blocks:
-                            block_type_emoji = {
-                                "straight": "➡️",
-                                "superset": "🔄",
-                                "circuit": "🔁",
-                                "emom": "⏰",
-                                "amrap": "💥"
-                            }
-                            output.append(f"\n         {block_type_emoji.get(block.type, '•')} {block.type.upper()} Block:")
-                            
-                            for ex in block.exercises:
-                                sets_info = []
-                                for s in ex.sets:
-                                    weight_str = ""
-                                    if s.target_weight:
-                                        weight_str = f" @ {s.target_weight}"
-                                        if isinstance(s.target_weight, (int, float)):
-                                            weight_str += "kg"
-                                    rpe_str = f" RPE {s.target_rpe}" if s.target_rpe else ""
-                                    sets_info.append(f"{s.type}: {s.target_reps} reps{weight_str}{rpe_str}")
-                                
-                                output.append(f"            • {ex.name}")
-                                output.append(f"              Equipment: {', '.join(ex.equipment) if ex.equipment else 'Bodyweight'}")
-                                output.append(f"              Sets: {len(ex.sets)} | Rest: {ex.rest_between_sets}s")
-                                if ex.alternatives:
-                                    output.append(f"              Alternatives: {', '.join(ex.alternatives[:2])}")
+                        for ex in block.exercises:
+                            output.append(f"         • {ex.name} - {len(ex.sets)} sets")
+                            if ex.equipment:
+                                output.append(f"           Equipment: {', '.join(ex.equipment)}")
         
         output.append("\n" + "=" * 60)
         output.append("💬 Would you like to make any changes to this plan?")
-        output.append("   You can ask to:")
+        output.append("   You can:")
+        output.append("   • Say 'show week X' to see full details for any week")
         output.append("   • Swap exercises (e.g., 'replace squats with leg press')")
         output.append("   • Adjust sets/reps (e.g., 'make it 4 sets instead of 3')")
         output.append("   • Add/remove exercises")
@@ -707,22 +771,112 @@ def format_workout_plan_for_review(workout_plan_json: str) -> str:
         return f"❌ Error formatting workout plan: {str(e)}"
 
 
-def summarize_workout_changes(original_json: str, updated_json: str) -> str:
+def format_workout_week_details(week_number: int) -> str:
+    """
+    Show detailed exercise information for a specific week of the cached workout plan.
+    
+    Use this tool when the user wants to see full details for a particular week,
+    after showing them the workout plan summary.
+    
+    Args:
+        week_number: The week number to show details for (1-based)
+    
+    Returns:
+        Detailed exercise information for the specified week
+    """
+    try:
+        if "current" not in _current_workout_plan_cache:
+            return "❌ No workout plan loaded. Please generate or load a workout plan first."
+        
+        validated_plan = _current_workout_plan_cache["current"]
+        
+        # Find the week
+        target_week = None
+        target_phase = None
+        for phase in validated_plan.phases:
+            for week in phase.weeks:
+                if week.week_number == week_number:
+                    target_week = week
+                    target_phase = phase
+                    break
+            if target_week:
+                break
+        
+        if not target_week:
+            return f"❌ Week {week_number} not found. This plan has {validated_plan.duration_weeks} weeks."
+        
+        output = []
+        output.append("=" * 60)
+        output.append(f"📅 WEEK {week_number} DETAILS")
+        output.append(f"Phase: {target_phase.name}")
+        output.append(f"Focus: {target_week.focus}" + (" (DELOAD WEEK)" if target_week.is_deload else ""))
+        output.append("=" * 60)
+        
+        for day in target_week.days:
+            if day.rest_day:
+                output.append(f"\n{'─' * 50}")
+                output.append(f"Day {day.day_number}: 🛋️  REST DAY")
+            else:
+                output.append(f"\n{'─' * 50}")
+                output.append(f"Day {day.day_number}: {day.name}")
+                output.append(f"Duration: {day.target_duration} min | Targets: {', '.join(day.muscle_groups)}")
+                
+                for block in day.blocks:
+                    block_type_emoji = {
+                        "straight": "➡️",
+                        "superset": "🔄",
+                        "circuit": "🔁",
+                        "emom": "⏰",
+                        "amrap": "💥"
+                    }
+                    output.append(f"\n   {block_type_emoji.get(block.type, '•')} {block.type.upper()} Block:")
+                    
+                    for ex in block.exercises:
+                        output.append(f"\n      • {ex.name}")
+                        output.append(f"        Equipment: {', '.join(ex.equipment) if ex.equipment else 'Bodyweight'}")
+                        output.append(f"        Muscles: {', '.join(ex.muscle_groups.primary)}")
+                        
+                        # Show sets detail
+                        sets_summary = []
+                        for s in ex.sets:
+                            weight_str = f" @ {s.target_weight}kg" if s.target_weight else ""
+                            rpe_str = f" RPE{s.target_rpe}" if s.target_rpe else ""
+                            sets_summary.append(f"{s.type}: {s.target_reps}reps{weight_str}{rpe_str}")
+                        output.append(f"        Sets ({len(ex.sets)}): {' → '.join(sets_summary)}")
+                        output.append(f"        Rest: {ex.rest_between_sets}s between sets")
+                        
+                        if ex.alternatives:
+                            output.append(f"        Alternatives: {', '.join(ex.alternatives[:3])}")
+                        if ex.cues:
+                            output.append(f"        Cues: {', '.join(ex.cues[:2])}")
+        
+        output.append("\n" + "=" * 60)
+        output.append(f"💡 Type 'show week X' to see other weeks, or 'save it' when ready!")
+        output.append("=" * 60)
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        return f"❌ Error showing week details: {str(e)}"
+
+
+def summarize_workout_changes(original_plan: dict, updated_plan: dict) -> str:
     """
     Compare two workout plans and summarize what changed.
     
     Use this after modifying a workout plan to show the user what was updated.
     
     Args:
-        original_json: The original workout plan JSON
-        updated_json: The updated workout plan JSON
+        original_plan: The original workout plan as a JSON object/dictionary
+        updated_plan: The updated workout plan as a JSON object/dictionary
     
     Returns:
         Summary of changes made to the workout plan
     """
     try:
-        original = json.loads(original_json)
-        updated = json.loads(updated_json)
+        # Parse both inputs using the robust parser
+        original = _parse_workout_input(original_plan)
+        updated = _parse_workout_input(updated_plan)
         
         changes = []
         

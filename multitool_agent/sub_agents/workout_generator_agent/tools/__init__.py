@@ -27,6 +27,7 @@ from .workout_tools import (
     get_current_datetime,
     save_workout_plan,
     format_workout_plan_for_review,
+    format_workout_week_details,
     summarize_workout_changes,
     WORKOUT_AGENT_TOOLS,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "get_current_datetime",
     "save_workout_plan",
     "format_workout_plan_for_review",
+    "format_workout_week_details",
     "summarize_workout_changes",
     "WORKOUT_AGENT_TOOLS",
 ]
